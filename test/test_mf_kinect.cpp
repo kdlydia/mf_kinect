@@ -1,5 +1,7 @@
 #include "MayaFlux/MayaFlux.hpp"
 
+#include <gtest/gtest.h>
+
 #include "MayaFlux/Journal/Archivist.hpp"
 #include "MayaFlux/Kakshya/Source/CameraContainer.hpp"
 #include "MayaFlux/Registry/BackendRegistry.hpp"
@@ -17,18 +19,6 @@ namespace {
 
 using namespace MayaFlux;
 using IO::FreenectCameraSource;
-
-int g_failures = 0;
-int g_checks = 0;
-
-void check(bool ok, std::string_view what)
-{
-    ++g_checks;
-    if (!ok) {
-        ++g_failures;
-    }
-    MF_PRINT("{}  {}", ok ? "PASS" : "FAIL", what);
-}
 
 constexpr int W = 640;
 constexpr int H = 480;
@@ -105,78 +95,82 @@ bool wait_for(const std::function<bool()>& done)
     return false;
 }
 
-void depth_tests()
+TEST(Kinect, Depth)
 {
     FreenectCameraSource source;
-    check(source.enumerate_configs().size() == 3, "one Kinect lists depth, registered and rgb");
+    EXPECT_TRUE(source.enumerate_configs().size() == 3) << "one Kinect lists depth, registered and rgb";
 
-    check(source.open({ .input_format = "depth" }), "depth opens");
-    check(source.width() == 640 && source.height() == 480 && source.frame_rate() == 30.0, "depth is 640 x 480 @ 30");
+    EXPECT_TRUE(source.open({ .input_format = "depth" })) << "depth opens";
+    EXPECT_TRUE(source.width() == 640 && source.height() == 480 && source.frame_rate() == 30.0) << "depth is 640 x 480 @ 30";
 
     auto c = source.create_container();
-    check(c && c->get_format() == Kakshya::ImageFormat::DEPTH16, "depth container is DEPTH16");
+    EXPECT_TRUE(c && c->get_format() == Kakshya::ImageFormat::DEPTH16) << "depth container is DEPTH16";
     const auto& range = c->get_structure().dimensions.back().value_range;
-    check(range && range->min == 0 && range->max == 10000 && range->invalid == 0.0, "depth range is 0 to 10000 mm, 0 for no reading");
+    EXPECT_TRUE(range && range->min == 0 && range->max == 10000 && range->invalid == 0.0) << "depth range is 0 to 10000 mm, 0 for no reading";
 
     source.setup_io_service(7);
     c->setup_io(7);
     source.set_container(c);
 
-    check(wait_for([&] { return depth_at(*c, 600, 400) != 0; }), "first frame arrives after set_container");
-    check(depth_at(*c, 600, 400) == raw_to_mm(WALL_RAW), std::format("wall reads {} mm", raw_to_mm(WALL_RAW)));
-    check(depth_at(*c, 5, 5) == 0, "no reading reads 0");
+    EXPECT_TRUE(wait_for([&] { return depth_at(*c, 600, 400) != 0; })) << "first frame arrives after set_container";
+    EXPECT_TRUE(depth_at(*c, 600, 400) == raw_to_mm(WALL_RAW)) << std::format("wall reads {} mm", raw_to_mm(WALL_RAW));
+    EXPECT_TRUE(depth_at(*c, 5, 5) == 0) << "no reading reads 0";
 
     int disc = 0;
     for (int x = 0; x < W; ++x)
         disc += depth_at(*c, x, 240) == raw_to_mm(DISC_RAW) ? 1 : 0;
-    check(disc >= 115 && disc <= 121, std::format("disc reads {} mm across 119 pixels (got {})", raw_to_mm(DISC_RAW), disc));
+    EXPECT_TRUE(disc >= 115 && disc <= 121) << std::format("disc reads {} mm across 119 pixels (got {})", raw_to_mm(DISC_RAW), disc);
 
     uint16_t marker = 1;
     std::memcpy(c->mutable_frame_ptr() + (400 * W + 600) * 2, &marker, 2);
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    check(depth_at(*c, 600, 400) == 1, "no frame is written without a request");
+    EXPECT_TRUE(depth_at(*c, 600, 400) == 1) << "no frame is written without a request";
 
     Registry::BackendRegistry::instance().get_service<Registry::Service::IOService>()->request_frame(7);
-    check(wait_for([&] { return depth_at(*c, 600, 400) == raw_to_mm(WALL_RAW); }), "IOService request_frame brings the next frame");
+    EXPECT_TRUE(wait_for([&] { return depth_at(*c, 600, 400) == raw_to_mm(WALL_RAW); })) << "IOService request_frame brings the next frame";
 
     source.close();
-    check(!source.is_open(), "close releases the Kinect");
+    EXPECT_TRUE(!source.is_open()) << "close releases the Kinect";
 }
 
-void rgb_tests()
+TEST(Kinect, Rgb)
 {
     FreenectCameraSource source;
-    check(source.open({ .input_format = "rgb" }), "rgb opens");
+    EXPECT_TRUE(source.open({ .input_format = "rgb" })) << "rgb opens";
 
     auto c = source.create_container();
-    check(c && c->get_format() == Kakshya::ImageFormat::RGBA8, "rgb container is RGBA8");
+    EXPECT_TRUE(c && c->get_format() == Kakshya::ImageFormat::RGBA8) << "rgb container is RGBA8";
 
-    check(wait_for([&] { return source.pull_frame(c); }), "pull_frame writes a frame without set_container");
+    EXPECT_TRUE(wait_for([&] { return source.pull_frame(c); })) << "pull_frame writes a frame without set_container";
     const auto px = c->get_frame_pixels(0).subspan((3 * W + 5) * 4, 4);
-    check(px[0] == 5 && px[1] == 3 && px[2] % 8 == 0 && px[3] == 255, "rgb pixel (5, 3) expands to RGBA");
-    check(!source.pull_frame(c), "pull_frame is false until the next frame");
+    EXPECT_TRUE(px[0] == 5 && px[1] == 3 && px[2] % 8 == 0 && px[3] == 255) << "rgb pixel (5, 3) expands to RGBA";
+    EXPECT_TRUE(!source.pull_frame(c)) << "pull_frame is false until the next frame";
 }
 
-void error_tests()
+TEST(Kinect, Errors)
 {
     FreenectCameraSource source;
-    check(!source.open({ .input_format = "ir" }), "unknown input_format fails");
-    check(source.last_error().contains("ir"), "error names the format");
-    check(!source.open({ .device_name = "kinect" }), "non-numeric device_name fails");
+    EXPECT_TRUE(!source.open({ .input_format = "ir" })) << "unknown input_format fails";
+    EXPECT_TRUE(source.last_error().contains("ir")) << "error names the format";
+    EXPECT_TRUE(!source.open({ .device_name = "kinect" })) << "non-numeric device_name fails";
 }
+
+/** Writes the recording libfakenect plays and points it there, once per test process. */
+class Recording : public ::testing::Environment {
+public:
+    void SetUp() override
+    {
+        const auto dir = std::filesystem::temp_directory_path() / "mf_kinect_recording";
+        write_recording(dir);
+        setenv("FAKENECT_PATH", dir.c_str(), 1);
+    }
+};
 
 } // namespace
 
-int main()
+int main(int argc, char** argv)
 {
-    const auto dir = std::filesystem::temp_directory_path() / "mf_kinect_recording";
-    write_recording(dir);
-    setenv("FAKENECT_PATH", dir.c_str(), 1);
-
-    depth_tests();
-    rgb_tests();
-    error_tests();
-
-    MF_PRINT("{} of {} checks passed", g_checks - g_failures, g_checks);
-    return g_failures == 0 ? 0 : 1;
+    testing::InitGoogleTest(&argc, argv);
+    testing::AddGlobalTestEnvironment(new Recording);
+    return RUN_ALL_TESTS();
 }

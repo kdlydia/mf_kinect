@@ -73,7 +73,7 @@ cmake --build --preset release
 ctest --preset release
 ```
 
-Run `test/build/test_mf_kinect` to see each check.
+The tests use GoogleTest. CMake takes an installed GTest package, or downloads the pinned 1.18.0 release when there is none, so building them without a network needs GTest installed. `ctest` runs each test on its own.
 
 No Kinect needs to be connected. The test links against libfakenect, which comes with libfreenect and plays back a recording through the same API. The test writes its own recording first: a disc in front of a wall, a corner with no reading, and a colour ramp. It then checks:
 
