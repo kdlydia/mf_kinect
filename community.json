@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "name": "mf_kinect",
+  "min_version": "1.0.0",
+  "needs_lila": false,
+  "licence": "GPLv3",
+  "description": "A camera source for the first Kinect through libfreenect. Depth in millimetres, depth lined up with colour, or colour, as a CameraContainer that goes to Graphics like any camera."
+}
